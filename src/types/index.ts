@@ -7,6 +7,7 @@ export interface TabNote {
   fret: number
   duration: number
   note: string
+  midi?: number
 }
 
 export interface Song {

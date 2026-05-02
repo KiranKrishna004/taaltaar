@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { Song, TabNote } from '@/types'
-import { frequencyToNote, notesMatch, noteToFrequency } from '@/lib/pitchDetection'
+import { frequencyToNote, notesMatch } from '@/lib/pitchDetection'
 import { recordPractice } from '@/lib/gamification'
 import ScoreCard from './ScoreCard'
 import { Button } from '@/components/ui/button'
@@ -13,50 +13,6 @@ const AlphaTabRenderer = dynamic(() => import('./AlphaTabRenderer'), { ssr: fals
 interface Props { song: Song }
 
 type PracticeState = 'idle' | 'permission_denied' | 'playing' | 'finished'
-
-// Per-string character (index 0 = string 1 high e, index 5 = string 6 low E).
-// noiseLp:   1-pole LP alpha applied to the initial noise excitation.
-//            Higher (→1) = brighter pluck (thin steel); lower = warmer (thick wound).
-// decay:     KS loop gain. Closer to 0.5 = slower decay. Wound strings sustain longer.
-// shelfGain: dB cut on a high shelf above 3.5 kHz. Thin strings keep more treble.
-const STRING_CFG = [
-  { noiseLp: 0.95, decay: 0.4982, shelfGain: -5  }, // 1: high e  — thin, bright, fast decay
-  { noiseLp: 0.88, decay: 0.4984, shelfGain: -7  }, // 2: B
-  { noiseLp: 0.80, decay: 0.4985, shelfGain: -8  }, // 3: G
-  { noiseLp: 0.72, decay: 0.4987, shelfGain: -9  }, // 4: D  — wound
-  { noiseLp: 0.64, decay: 0.4989, shelfGain: -10 }, // 5: A  — wound, fuller
-  { noiseLp: 0.56, decay: 0.4991, shelfGain: -12 }, // 6: low E — thick, warm, slow decay
-]
-
-// Karplus-Strong with per-string excitation shaping.
-// Ring buffer size = Math.round(sr/freq) keeps pitch accurate — using floor+1 would shift
-// every note flat by up to half a semitone.
-function ksBuffer(ctx: AudioContext, freq: number, duration: number, stringNum: number): AudioBuffer {
-  const cfg  = STRING_CFG[(stringNum - 1) % 6]
-  const sr   = ctx.sampleRate
-  const N    = Math.max(2, Math.round(sr / freq))
-  const len  = Math.ceil((duration + 2.5) * sr)
-  const buf  = ctx.createBuffer(1, len, sr)
-  const data = buf.getChannelData(0)
-
-  // LP-filter the seed noise so each string has its own tonal character at the attack
-  const ring = new Float32Array(N)
-  let lp = 0
-  for (let i = 0; i < N; i++) {
-    const n = Math.random() * 2 - 1
-    lp      = cfg.noiseLp * n + (1 - cfg.noiseLp) * lp
-    ring[i] = lp
-  }
-
-  for (let i = 0; i < len; i++) {
-    const cur  = i       % N
-    const next = (i + 1) % N
-    data[i]    = ring[cur]
-    ring[cur]  = (ring[cur] + ring[next]) * cfg.decay
-  }
-
-  return buf
-}
 
 export default function PracticeArea({ song }: Props) {
   const [state, setState] = useState<PracticeState>('idle')
@@ -76,11 +32,14 @@ export default function PracticeArea({ song }: Props) {
   const notesHitRef = useRef(0)
   const noteResultsRef = useRef<Map<number, 'hit' | 'miss'>>(new Map())
   const scheduledOscsRef = useRef<AudioBufferSourceNode[]>([])
+  const instrumentRef    = useRef<{ play: (note: string | number, when: number, opts?: object) => AudioBufferSourceNode; stop: () => void } | null>(null)
+  const scheduleTickRef  = useRef<(() => void) | null>(null)
 
-  const tabData = song.tab_data as TabNote[]
+  const tabData = (song.tab_data ?? []) as TabNote[]
+  const offset = song.youtube_offset ?? 0
   const totalNotes = tabData.length
   const songDuration = tabData.length > 0
-    ? tabData[tabData.length - 1].time + tabData[tabData.length - 1].duration + 1
+    ? offset + tabData[tabData.length - 1].time + tabData[tabData.length - 1].duration + 1
     : 30
 
   // Keep master gain in sync with the volume slider even while playing
@@ -92,7 +51,7 @@ export default function PracticeArea({ song }: Props) {
 
   const cleanup = useCallback(() => {
     if (intervalRef.current) clearInterval(intervalRef.current)
-    scheduledOscsRef.current.forEach(o => { try { o.stop() } catch { /* already stopped */ } })
+    if (instrumentRef.current) { try { instrumentRef.current.stop() } catch { /* already stopped */ }; instrumentRef.current = null }
     scheduledOscsRef.current = []
     if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null }
     if (audioContextRef.current) { audioContextRef.current.close(); audioContextRef.current = null }
@@ -120,6 +79,7 @@ export default function PracticeArea({ song }: Props) {
 
       const ctx = new AudioContext()
       audioContextRef.current = ctx
+      await ctx.resume()
 
       // Mic input → analyser (not connected to destination — silent monitoring)
       const analyser = ctx.createAnalyser()
@@ -133,42 +93,44 @@ export default function PracticeArea({ song }: Props) {
       masterGain.connect(ctx.destination)
       masterGainRef.current = masterGain
 
-      const PitchFinderModule = await import('pitchfinder')
+      const [PitchFinderModule, { default: Soundfont }] = await Promise.all([
+        import('pitchfinder'),
+        import('soundfont-player'),
+      ])
       const PitchFinder = PitchFinderModule.default || PitchFinderModule
       const detectPitch = (PitchFinder as {
         YIN: (opts: { sampleRate: number }) => (buf: Float32Array) => number | null
       }).YIN({ sampleRate: ctx.sampleRate })
 
-      // Pre-generate all KS buffers first (CPU-heavy) so the time we sample
-      // for startAt reflects what's left after the work is done.
-      const prebuilt: Array<{ note: TabNote; buf: AudioBuffer }> = []
-      for (const note of tabData) {
-        const freq = noteToFrequency(note.note)
-        if (freq) prebuilt.push({ note, buf: ksBuffer(ctx, freq, note.duration, note.string) })
-      }
+      // Load samples (network fetch) before sampling startAt so scheduling is tight.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const instrument = await (Soundfont as any).instrument(ctx, 'acoustic_guitar_steel', {
+        destination: masterGain,
+      })
+      instrumentRef.current = instrument
 
-      // Sample startAt only after all buffer generation is complete.
-      const startAt = ctx.currentTime + 0.05
+      const startAt = ctx.currentTime + 0.1
       startAtRef.current = startAt
 
-      // Schedule all sources with per-string shelf EQ — no buffer work left, just API calls.
-      scheduledOscsRef.current = prebuilt.map(({ note, buf }) => {
-        const cfg = STRING_CFG[(note.string - 1) % 6]
+      // Rolling scheduler — only create nodes 3 s ahead to avoid stalling the audio thread.
+      const LOOKAHEAD = 3.0
+      const sorted = [...tabData].sort((a, b) => a.time - b.time)
+      let nextIdx = 0
 
-        const source = ctx.createBufferSource()
-        source.buffer = buf
+      const scheduleTick = () => {
+        const ctx2 = audioContextRef.current
+        if (!ctx2) return
+        const elapsed = ctx2.currentTime - startAtRef.current
+        const horizon = elapsed + LOOKAHEAD
+        while (nextIdx < sorted.length && sorted[nextIdx].time <= horizon) {
+          const note = sorted[nextIdx++]
+          const pitch = note.midi ?? note.note
+          instrument.play(pitch, startAt + offset + note.time, { duration: note.duration + 1 })
+        }
+      }
 
-        const shelf = ctx.createBiquadFilter()
-        shelf.type = 'highshelf'
-        shelf.frequency.value = 3500
-        shelf.gain.value = cfg.shelfGain
-
-        source.connect(shelf)
-        shelf.connect(masterGain)
-        source.start(startAt + note.time)
-        source.stop(startAt + note.time + note.duration + 2.5)
-        return source
-      })
+      scheduleTickRef.current = scheduleTick
+      scheduleTick()
 
       setState('playing')
       setCurrentTime(0)
@@ -180,6 +142,7 @@ export default function PracticeArea({ song }: Props) {
 
       intervalRef.current = setInterval(() => {
         if (!audioContextRef.current) return
+        scheduleTickRef.current?.()
         const elapsed = audioContextRef.current.currentTime - startAtRef.current
         setCurrentTime(elapsed)
 
@@ -194,7 +157,7 @@ export default function PracticeArea({ song }: Props) {
 
         if (pitch && pitch > 50 && pitch < 2000) {
           const detectedNote = frequencyToNote(pitch)
-          const expectedNote = tabData.find(n => Math.abs(n.time - elapsed) < 0.2 + n.duration / 2)
+          const expectedNote = tabData.find(n => Math.abs((n.time + offset) - elapsed) < 0.2 + n.duration / 2)
 
           if (expectedNote) {
             const noteIndex = tabData.indexOf(expectedNote)

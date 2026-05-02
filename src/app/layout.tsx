@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import Link from 'next/link'
+import AudioSubmitButton from '@/components/AudioSubmitButton'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -37,6 +38,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="flex-1 flex w-full justify-center">
           {children}
         </main>
+
+        {/* Floating request button */}
+        <div className="fixed bottom-6 right-6 z-50">
+          <AudioSubmitButton />
+        </div>
 
         <footer className="mt-20 border-t border-zinc-800/40 bg-zinc-900/20">
           <div className="max-w-6xl mx-auto px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">

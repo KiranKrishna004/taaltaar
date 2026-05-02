@@ -11,15 +11,18 @@ export function audioCachePath(songId: string): string {
 }
 
 export async function buildGuitarAudio(youtubeUrl: string, outPath: string): Promise<void> {
-  const [ytdlModule, ffmpegModule, ffmpegStaticModule] = await Promise.all([
+  const [ytdlModule, ffmpegModule] = await Promise.all([
     import('@distube/ytdl-core'),
     import('fluent-ffmpeg'),
-    import('ffmpeg-static'),
   ])
 
   const ytdl = ytdlModule.default
   const ffmpeg = ffmpegModule.default
-  const ffmpegPath = ffmpegStaticModule.default as string
+
+  // dynamic import('ffmpeg-static') returns '/ROOT/...' in Next.js ESM context.
+  // require() resolves the path correctly from the package's own __dirname.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ffmpegPath: string = require('ffmpeg-static')
 
   const audioStream = ytdl(youtubeUrl, {
     filter: 'audioonly',

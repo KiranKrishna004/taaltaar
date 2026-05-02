@@ -18,12 +18,15 @@ Add the same MODAL_WEBHOOK_SECRET to .env.local.
 
 import os
 from pathlib import Path
+from typing import Optional
 import modal
 
 app = modal.App("taaltaar-extract")
 
 # Persistent volume — Demucs model weights download once, stay cached forever
 model_cache = modal.Volume.from_name("taaltaar-demucs-cache", create_if_missing=True)
+
+_scripts_dir = Path(__file__).parent
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -33,13 +36,8 @@ image = (
         extra_index_url="https://download.pytorch.org/whl/cu118",
     )
     .pip_install(["demucs", "librosa", "noisereduce", "soundfile", "supabase", "httpx"])
-)
-
-# Mount extract_tab.py from the local scripts directory into the container
-_scripts_dir = Path(__file__).parent
-extract_tab_mount = modal.Mount.from_local_file(
-    local_path=_scripts_dir / "extract_tab.py",
-    remote_path="/app/extract_tab.py",
+    # Bake extract_tab.py into the image at build time
+    .add_local_file(str(_scripts_dir / "extract_tab.py"), "/app/extract_tab.py")
 )
 
 
@@ -47,11 +45,10 @@ extract_tab_mount = modal.Mount.from_local_file(
     image=image,
     gpu="T4",
     volumes={"/root/.cache": model_cache},
-    mounts=[extract_tab_mount],
     timeout=300,
     secrets=[modal.Secret.from_name("taaltaar")],
 )
-def run_extraction(submission_id: str, audio_url: str, vocal_url: str | None, mode: str) -> None:
+def run_extraction(submission_id: str, audio_url: str, vocal_url: Optional[str], mode: str) -> None:
     import sys
     import tempfile
     import httpx
@@ -62,7 +59,7 @@ def run_extraction(submission_id: str, audio_url: str, vocal_url: str | None, mo
 
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])
 
-    def set_status(status: str, error: str | None = None) -> None:
+    def set_status(status: str, error: Optional[str] = None) -> None:
         update: dict = {"extraction_status": status}
         if error is not None:
             update["extraction_error"] = error
@@ -123,7 +120,7 @@ def run_extraction(submission_id: str, audio_url: str, vocal_url: str | None, mo
     image=modal.Image.debian_slim(python_version="3.11").pip_install(["fastapi"]),
     secrets=[modal.Secret.from_name("taaltaar")],
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def trigger(body: dict) -> dict:
     from fastapi import HTTPException
 

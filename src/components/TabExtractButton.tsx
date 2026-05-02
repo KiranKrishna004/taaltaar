@@ -86,7 +86,7 @@ export default function TabExtractButton({ songId }: Props) {
       <div>
         <p className="text-sm font-medium text-zinc-300">Extract tab from audio</p>
         <p className="text-xs text-zinc-600 mt-0.5">
-          Upload an audio file (MP3, WAV, M4A). Onset + pitch detection derives note timings automatically.
+          Upload the downloaded YouTube video or any audio file (MP4, WebM, MP3, WAV…). Onset + pitch detection derives note timings automatically.
         </p>
       </div>
 
@@ -103,7 +103,7 @@ export default function TabExtractButton({ songId }: Props) {
         <input
           ref={inputRef}
           type="file"
-          accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg"
+          accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.mp4,.webm,.mkv"
           className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
         />
@@ -111,7 +111,7 @@ export default function TabExtractButton({ songId }: Props) {
           {file ? (
             <p className="text-sm text-zinc-300 font-medium">{file.name}</p>
           ) : (
-            <p className="text-sm text-zinc-600">Drop audio file here or click to browse</p>
+            <p className="text-sm text-zinc-600">Drop video or audio file here, or click to browse</p>
           )}
         </div>
       </div>

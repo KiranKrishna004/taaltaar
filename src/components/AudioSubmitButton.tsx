@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { getDeviceFingerprint } from '@/lib/fingerprint'
 import { LANGUAGE_CONFIG } from '@/lib/languageConfig'
+import { supabase } from '@/lib/supabase'
 
 type Phase = 'idle' | 'processing' | 'done' | 'error'
 interface ExistingSong { id: string; title: string }
@@ -40,18 +41,26 @@ export default function AudioSubmitButton() {
     if (!canSubmit) return
     setPhase('processing'); setError(null)
 
-    const fp   = await getDeviceFingerprint()
-    const form = new FormData()
-    form.append('songName', songName.trim())
-    form.append('language', language)
-    form.append('audio', file)
-    form.append('submittedBy', fp)
-
     try {
-      const res  = await fetch('/api/submissions', { method: 'POST', body: form })
-      const contentType = res.headers.get('content-type') ?? ''
-      const data = contentType.includes('application/json') ? await res.json() : {}
-      if (!res.ok) throw new Error(data.error ?? `Upload failed (${res.status})`)
+      // Upload directly from browser to Supabase Storage — bypasses Next.js body limit
+      const storageKey = `${Date.now()}.${file.name.split('.').pop() ?? 'mp3'}`
+      const { error: uploadErr } = await supabase.storage
+        .from('submissions')
+        .upload(storageKey, file, { cacheControl: '3600', upsert: false })
+      if (uploadErr) throw new Error(`Storage upload failed: ${uploadErr.message}`)
+
+      const { data: { publicUrl: audioUrl } } = supabase.storage
+        .from('submissions')
+        .getPublicUrl(storageKey)
+
+      const fp  = await getDeviceFingerprint()
+      const res = await fetch('/api/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ songName: songName.trim(), language, audioUrl, submittedBy: fp }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `Submission failed (${res.status})`)
       setPhase('done')
     } catch (e) { setError(String(e)); setPhase('error') }
   }

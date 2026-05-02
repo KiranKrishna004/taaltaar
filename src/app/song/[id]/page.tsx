@@ -4,24 +4,15 @@ import { Song } from '@/types'
 import Leaderboard from '@/components/Leaderboard'
 import RecordingFeed from '@/components/RecordingFeed'
 import PracticeArea from '@/components/PracticeArea'
-import TabExtractButton from '@/components/TabExtractButton'
+import OffsetInput from '@/components/OffsetInput'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { getLanguage } from '@/lib/languageConfig'
+import { getDifficulty } from '@/lib/difficultyConfig'
 
 interface Props {
   params: Promise<{ id: string }>
-}
-
-const difficultyConfig = {
-  beginner:     { label: 'Beginner',     variant: 'emerald' as const, dots: 1 },
-  intermediate: { label: 'Intermediate', variant: 'amber'   as const, dots: 2 },
-  advanced:     { label: 'Advanced',     variant: 'red'     as const, dots: 3 },
-}
-
-const languageConfig = {
-  tamil:     { label: 'Tamil',     variant: 'orange' as const, hero: 'from-orange-900/20 via-zinc-900/0 to-transparent' },
-  malayalam: { label: 'Malayalam', variant: 'green'  as const, hero: 'from-green-900/20 via-zinc-900/0 to-transparent'  },
 }
 
 export default async function SongPage({ params }: Props) {
@@ -42,8 +33,8 @@ export default async function SongPage({ params }: Props) {
     .eq('id', song.id)
 
   const s = song as Song
-  const lang = languageConfig[s.language]
-  const diff = difficultyConfig[s.difficulty]
+  const lang = getLanguage(s.language)
+  const diff = getDifficulty(s.difficulty)
 
   return (
     <div className="w-full">
@@ -110,17 +101,15 @@ export default async function SongPage({ params }: Props) {
           <PracticeArea song={s} />
         </section>
 
-        {/* Tab extraction (developer tool) */}
-        {s.youtube_url && (
-          <section>
-            <div className="flex items-center gap-3 mb-5">
-              <h2 className="text-base font-semibold text-white">Tab Extraction</h2>
-              <div className="flex-1 h-px bg-zinc-800" />
-              <span className="text-xs text-zinc-600">Developer tool</span>
-            </div>
-            <TabExtractButton songId={s.id} />
-          </section>
-        )}
+        {/* Song offset (developer) */}
+        <section>
+          <div className="flex items-center gap-3 mb-5">
+            <h2 className="text-base font-semibold text-white">Settings</h2>
+            <div className="flex-1 h-px bg-zinc-800" />
+            <span className="text-xs text-zinc-600">Developer</span>
+          </div>
+          <OffsetInput songId={s.id} initialOffset={s.youtube_offset ?? 0} />
+        </section>
 
         {/* Leaderboard + Community */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

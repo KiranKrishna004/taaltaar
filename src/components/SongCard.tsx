@@ -2,21 +2,12 @@ import Link from 'next/link'
 import { Song } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-
-const difficultyConfig = {
-  beginner:     { label: 'Beginner',     variant: 'emerald' as const, dots: 1 },
-  intermediate: { label: 'Intermediate', variant: 'amber'   as const, dots: 2 },
-  advanced:     { label: 'Advanced',     variant: 'red'     as const, dots: 3 },
-}
-
-const languageConfig = {
-  tamil:     { label: 'Tamil',     variant: 'orange' as const, accent: 'from-orange-500/20 to-transparent', bar: 'bg-orange-500' },
-  malayalam: { label: 'Malayalam', variant: 'green'  as const, accent: 'from-green-500/15 to-transparent',  bar: 'bg-green-500'  },
-}
+import { getLanguage } from '@/lib/languageConfig'
+import { getDifficulty } from '@/lib/difficultyConfig'
 
 export default function SongCard({ song }: { song: Song }) {
-  const lang = languageConfig[song.language]
-  const diff = difficultyConfig[song.difficulty]
+  const lang = getLanguage(song.language)
+  const diff = getDifficulty(song.difficulty)
 
   return (
     <Link href={`/song/${song.id}`} className="group">
@@ -32,7 +23,7 @@ export default function SongCard({ song }: { song: Song }) {
           {/* Top row */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <h3 className="font-semibold text-white group-hover:text-amber-400 transition-colors text-base leading-snug truncate">
+              <h3 className={`font-semibold text-white transition-colors text-base leading-snug truncate ${lang.hoverText}`}>
                 {song.title}
               </h3>
               <p className="text-zinc-400 text-sm mt-1 truncate">{song.film}</p>
@@ -56,8 +47,8 @@ export default function SongCard({ song }: { song: Song }) {
             </Badge>
 
             <div className="flex items-center gap-3 text-xs text-zinc-600">
-              <span>{song.bpm} BPM</span>
-              <span className="w-px h-3 bg-zinc-800" />
+              {song.bpm && <span><span className="text-zinc-400 font-medium">{song.bpm}</span> BPM</span>}
+              {song.bpm && <span className="w-px h-3 bg-zinc-800" />}
               <span>{song.play_count} plays</span>
             </div>
           </div>

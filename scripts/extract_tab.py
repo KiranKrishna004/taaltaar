@@ -156,10 +156,11 @@ def load_vocal_stem(audio_path: str) -> np.ndarray:
     ref = wav.mean(0)
     wav = (wav - ref.mean()) / (ref.std() + 1e-8)
 
-    print("Separating vocals (30–60 s on CPU)…", file=sys.stderr)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Separating vocals ({device})…", file=sys.stderr)
     with torch.no_grad():
         with contextlib.redirect_stdout(sys.stderr):
-            sources = apply_model(model, wav.unsqueeze(0), device='cpu')[0]
+            sources = apply_model(model, wav.unsqueeze(0), device=device)[0]
 
     vocals_idx  = list(model.sources).index('vocals')
     vocals_mono = sources[vocals_idx].mean(0).numpy()

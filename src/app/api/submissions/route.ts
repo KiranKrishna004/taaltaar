@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const supabase = createServerSupabaseClient()
   const { data, error } = await supabase
     .from('audio_submissions')
-    .select('id, song_name, note_count, status, submitted_by, created_at, tab_data, audio_url, vocal_url, extraction_mode')
+    .select('id, song_name, note_count, status, submitted_by, created_at, tab_data, audio_url, vocal_url, extraction_mode, extraction_status, extraction_error')
     .eq('status', status)
     .order('created_at', { ascending: false })
 

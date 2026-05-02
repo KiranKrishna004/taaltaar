@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminSupabaseClient } from '@/lib/supabase-server'
 import { lookupSong } from '@/lib/spotify'
 
+// GET /api/submissions/[id]  — poll extraction status
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const supabase = createAdminSupabaseClient()
+  const { data, error } = await supabase
+    .from('audio_submissions')
+    .select('id, tab_data, note_count, vocal_url, extraction_mode, extraction_status, extraction_error')
+    .eq('id', id)
+    .single()
+  if (error || !data) return NextResponse.json({ error: 'not found' }, { status: 404 })
+  return NextResponse.json({ submission: data })
+}
+
 // POST /api/submissions/[id]  body: { action: 'approve' | 'reject' }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id }     = await params

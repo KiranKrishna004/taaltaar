@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import SubmissionPreview from './SubmissionPreview'
 import AudioPlayer from './AudioPlayer'
 
@@ -16,6 +16,8 @@ interface Submission {
   audio_url: string | null
   vocal_url: string | null
   extraction_mode: string | null
+  extraction_status: string | null
+  extraction_error: string | null
 }
 
 type StatusFilter = 'pending' | 'approved'
@@ -26,10 +28,11 @@ export default function SubmissionsReview() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading]         = useState(true)
   const [acting, setActing]           = useState<string | null>(null)
-  const [extracting, setExtracting]   = useState<string | null>(null)
+  const [triggering, setTriggering]   = useState<string | null>(null)
   const [extractError, setExtractError] = useState<string | null>(null)
   const [activeTab, setActiveTab]     = useState<Record<string, PreviewTab>>({})
   const [localData, setLocalData]     = useState<Record<string, Partial<Submission>>>({})
+  const [pollingIds, setPollingIds]   = useState<Set<string>>(new Set())
 
   async function load(status: StatusFilter = filter) {
     setLoading(true)
@@ -37,10 +40,45 @@ export default function SubmissionsReview() {
     const data = await res.json()
     setSubmissions(data.submissions ?? [])
     setLocalData({})
+    setPollingIds(new Set())
     setLoading(false)
   }
 
   useEffect(() => { load(filter) }, [filter])
+
+  // Poll every 3 s for any submission still being processed by Modal
+  useEffect(() => {
+    if (pollingIds.size === 0) return
+
+    const interval = setInterval(async () => {
+      const completed: string[] = []
+
+      await Promise.all([...pollingIds].map(async id => {
+        try {
+          const res = await fetch(`/api/submissions/${id}`)
+          if (!res.ok) return
+          const { submission } = await res.json() as { submission: Partial<Submission> }
+          if (submission.extraction_status !== 'processing') {
+            completed.push(id)
+            setLocalData(prev => ({ ...prev, [id]: { ...prev[id], ...submission } }))
+            if (submission.extraction_status === 'error') {
+              setExtractError(submission.extraction_error ?? 'extraction failed')
+            }
+          }
+        } catch { /* network hiccup — retry next tick */ }
+      }))
+
+      if (completed.length > 0) {
+        setPollingIds(prev => {
+          const next = new Set(prev)
+          completed.forEach(id => next.delete(id))
+          return next
+        })
+      }
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [pollingIds])
 
   function merged(s: Submission): Submission {
     return { ...s, ...localData[s.id] }
@@ -58,7 +96,7 @@ export default function SubmissionsReview() {
   }
 
   async function extractMelody(id: string) {
-    setExtracting(id)
+    setTriggering(id)
     setExtractError(null)
     setActiveTab(prev => ({ ...prev, [id]: 'vocal' }))
     try {
@@ -69,18 +107,16 @@ export default function SubmissionsReview() {
       })
       const text = await res.text()
       let data: Record<string, unknown> = {}
-      try { data = JSON.parse(text) } catch { /* non-JSON body */ }
-      if (!res.ok) throw new Error((data.error as string) ?? `extraction failed (${res.status}): ${text.slice(0, 200)}`)
-      if (data.tabData) {
-        setLocalData(prev => ({
-          ...prev,
-          [id]: { tab_data: data.tabData as TabNote[], note_count: data.noteCount as number, vocal_url: data.vocalUrl as string | null, extraction_mode: 'vocal' },
-        }))
-      }
+      try { data = JSON.parse(text) } catch { /* non-JSON */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `trigger failed (${res.status}): ${text.slice(0, 200)}`)
+
+      // Mark locally as processing and start polling
+      setLocalData(prev => ({ ...prev, [id]: { ...prev[id], extraction_status: 'processing' } }))
+      setPollingIds(prev => new Set([...prev, id]))
     } catch (e) {
       setExtractError(String(e))
     }
-    setExtracting(null)
+    setTriggering(null)
   }
 
   return (
@@ -89,16 +125,13 @@ export default function SubmissionsReview() {
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
         <div className="flex items-center gap-3">
           <p className="text-sm font-medium text-zinc-300">Song Submissions</p>
-          {/* Status filter tabs */}
           <div className="flex rounded-md border border-zinc-800 overflow-hidden">
             {(['pending', 'approved'] as StatusFilter[]).map(s => (
               <button
                 key={s}
                 onClick={() => setFilter(s)}
                 className={`px-3 py-1 text-xs font-medium transition-colors ${
-                  filter === s
-                    ? 'bg-zinc-800 text-zinc-200'
-                    : 'text-zinc-500 hover:text-zinc-300'
+                  filter === s ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 {s.charAt(0).toUpperCase() + s.slice(1)}
@@ -139,11 +172,14 @@ export default function SubmissionsReview() {
         )}
 
         {submissions.map(sub => {
-          const s            = merged(sub)
-          const hasTab       = s.tab_data && s.tab_data.length > 0
-          const isExtracting = extracting === s.id
-          const tab          = activeTab[s.id] ?? 'vocal'
-          const isPending    = s.status === 'pending'
+          const s              = merged(sub)
+          const hasTab         = s.tab_data && s.tab_data.length > 0
+          const isTriggering   = triggering === s.id
+          const isProcessing   = s.extraction_status === 'processing'
+          const isExtracting   = isTriggering || isProcessing
+          const hasError       = s.extraction_status === 'error'
+          const tab            = activeTab[s.id] ?? 'vocal'
+          const isPending      = s.status === 'pending'
 
           return (
             <div key={s.id} className="p-4 space-y-3">
@@ -160,7 +196,7 @@ export default function SubmissionsReview() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {isPending && !hasTab && !isExtracting && (
+                  {isPending && !hasTab && !isExtracting && !hasError && (
                     <button
                       onClick={() => extractMelody(s.id)}
                       className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-amber-500/50 hover:text-amber-400 transition-colors"
@@ -168,14 +204,23 @@ export default function SubmissionsReview() {
                       Extract melody
                     </button>
                   )}
+
+                  {isPending && hasError && !isExtracting && (
+                    <button
+                      onClick={() => extractMelody(s.id)}
+                      className="rounded-md border border-red-900/50 px-2.5 py-1 text-xs text-red-400 hover:border-red-500/50 transition-colors"
+                    >
+                      Retry
+                    </button>
+                  )}
+
                   {isExtracting && (
                     <div className="flex items-center gap-1.5 text-xs text-zinc-500">
                       <div className="w-3 h-3 rounded-full border-2 border-zinc-700 border-t-amber-400 animate-spin" />
-                      Extracting…
+                      {isProcessing ? 'Processing…' : 'Starting…'}
                     </div>
                   )}
 
-                  {/* Pending: approve + reject once tab exists */}
                   {isPending && hasTab && (
                     <>
                       <button
@@ -195,7 +240,6 @@ export default function SubmissionsReview() {
                     </>
                   )}
 
-                  {/* Approved: only reject (disapprove) */}
                   {!isPending && (
                     <button
                       disabled={acting === s.id}
@@ -207,6 +251,13 @@ export default function SubmissionsReview() {
                   )}
                 </div>
               </div>
+
+              {/* Extraction error inline */}
+              {hasError && s.extraction_error && (
+                <p className="text-xs text-red-400 font-mono bg-red-950/20 rounded px-2 py-1 break-all">
+                  {s.extraction_error}
+                </p>
+              )}
 
               {/* Tabbed preview — shown once tab data exists */}
               {hasTab && (
@@ -226,16 +277,13 @@ export default function SubmissionsReview() {
                       </button>
                     ))}
                   </div>
-
                   <div className="p-3 bg-zinc-900/30">
                     {tab === 'vocal' && (
                       s.vocal_url
                         ? <AudioPlayer src={s.vocal_url} />
                         : <p className="text-xs text-zinc-600 py-1">Vocal stem not available</p>
                     )}
-                    {tab === 'melody' && (
-                      <SubmissionPreview tabData={s.tab_data} />
-                    )}
+                    {tab === 'melody' && <SubmissionPreview tabData={s.tab_data} />}
                   </div>
                 </div>
               )}

@@ -27,6 +27,7 @@ export default function SubmissionsReview() {
   const [loading, setLoading]         = useState(true)
   const [acting, setActing]           = useState<string | null>(null)
   const [extracting, setExtracting]   = useState<string | null>(null)
+  const [extractError, setExtractError] = useState<string | null>(null)
   const [activeTab, setActiveTab]     = useState<Record<string, PreviewTab>>({})
   const [localData, setLocalData]     = useState<Record<string, Partial<Submission>>>({})
 
@@ -58,18 +59,24 @@ export default function SubmissionsReview() {
 
   async function extractMelody(id: string) {
     setExtracting(id)
+    setExtractError(null)
     setActiveTab(prev => ({ ...prev, [id]: 'vocal' }))
-    const res  = await fetch(`/api/submissions/${id}/extract`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: 'vocal' }),
-    })
-    const data = await res.json()
-    if (data.tabData) {
-      setLocalData(prev => ({
-        ...prev,
-        [id]: { tab_data: data.tabData, note_count: data.noteCount, vocal_url: data.vocalUrl, extraction_mode: 'vocal' },
-      }))
+    try {
+      const res  = await fetch(`/api/submissions/${id}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'vocal' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? `extraction failed (${res.status})`)
+      if (data.tabData) {
+        setLocalData(prev => ({
+          ...prev,
+          [id]: { tab_data: data.tabData, note_count: data.noteCount, vocal_url: data.vocalUrl, extraction_mode: 'vocal' },
+        }))
+      }
+    } catch (e) {
+      setExtractError(String(e))
     }
     setExtracting(null)
   }
@@ -106,6 +113,13 @@ export default function SubmissionsReview() {
           Refresh
         </button>
       </div>
+
+      {extractError && (
+        <div className="px-4 py-3 border-b border-red-900/40 bg-red-950/20 flex items-start justify-between gap-3">
+          <p className="text-xs text-red-400 font-mono break-all">{extractError}</p>
+          <button onClick={() => setExtractError(null)} className="text-xs text-zinc-600 hover:text-zinc-400 shrink-0">Dismiss</button>
+        </div>
+      )}
 
       <div className="divide-y divide-zinc-800/60">
         {loading && (

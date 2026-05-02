@@ -83,7 +83,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: `audio download failed: ${downloadErr?.message}` }, { status: 500 })
     }
 
-    const tmpAudio = `${tmpBase}.mp3`
+    // Preserve original extension so librosa picks the right demuxer
+    const ext      = storageKey.split('.').pop() ?? 'mp3'
+    const tmpAudio = `${tmpBase}.${ext}`
     await writeFile(tmpAudio, Buffer.from(await audioData.arrayBuffer()))
 
     try {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { spawn } from 'child_process'
-import { writeFile, unlink } from 'fs/promises'
+import { writeFile, readFile, unlink } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 

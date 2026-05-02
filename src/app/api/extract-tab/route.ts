@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { ensureAudioCached } from '@/lib/buildGuitarAudio'
 import { spawn } from 'child_process'
+import { writeFile, unlink } from 'fs/promises'
 import path from 'path'
+import os from 'os'
 
 export const maxDuration = 180
 
@@ -31,40 +32,47 @@ function runExtractor(audioPath: string, bpm: number): Promise<object[]> {
 }
 
 // POST /api/extract-tab
-// Body: { songId: string, save?: boolean }
 //
-// Fetches + caches the guitar audio if needed, then runs the Python
-// onset/pitch extractor. Returns a preview of tab_data; writes to DB
-// only when save=true.
+// Accepts multipart/form-data with:
+//   songId  — uuid of the song
+//   audio   — audio file (MP3, WAV, M4A, …)
+//   save    — "true" to write tab_data back to the DB
+//
+// Runs the librosa onset/pitch extractor on the uploaded audio and
+// returns { noteCount, tabData }. Writes to DB when save=true.
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { songId, save = false } = body as { songId?: string; save?: boolean }
+  const form = await req.formData()
+  const songId = form.get('songId') as string | null
+  const audioFile = form.get('audio') as File | null
+  const save = form.get('save') === 'true'
 
   if (!songId) return NextResponse.json({ error: 'songId required' }, { status: 400 })
+  if (!audioFile) return NextResponse.json({ error: 'audio file required' }, { status: 400 })
 
   const supabase = createServerSupabaseClient()
   const { data: song } = await supabase
     .from('songs')
-    .select('id, title, bpm, youtube_url')
+    .select('id, title, bpm')
     .eq('id', songId)
     .single()
 
   if (!song) return NextResponse.json({ error: 'song not found' }, { status: 404 })
-  if (!song.youtube_url) return NextResponse.json({ error: 'song has no youtube_url' }, { status: 400 })
 
-  let cachePath: string
-  try {
-    cachePath = await ensureAudioCached(songId, song.youtube_url)
-  } catch (e) {
-    return NextResponse.json({ error: `audio download failed: ${e}` }, { status: 500 })
-  }
+  // Write the uploaded file to a temp path so the Python script can read it
+  const ext = audioFile.name.split('.').pop() ?? 'mp3'
+  const tmpPath = path.join(os.tmpdir(), `extract-${songId}-${Date.now()}.${ext}`)
+  const bytes = await audioFile.arrayBuffer()
+  await writeFile(tmpPath, Buffer.from(bytes))
 
   let tabData: object[]
   try {
-    tabData = await runExtractor(cachePath, song.bpm ?? 80)
+    tabData = await runExtractor(tmpPath, song.bpm ?? 80)
   } catch (e) {
+    await unlink(tmpPath).catch(() => {})
     return NextResponse.json({ error: `extraction failed: ${e}` }, { status: 500 })
   }
+
+  await unlink(tmpPath).catch(() => {})
 
   if (save) {
     const { error } = await supabase

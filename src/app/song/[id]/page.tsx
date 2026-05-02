@@ -4,6 +4,7 @@ import { Song } from '@/types'
 import Leaderboard from '@/components/Leaderboard'
 import RecordingFeed from '@/components/RecordingFeed'
 import PracticeArea from '@/components/PracticeArea'
+import TabExtractButton from '@/components/TabExtractButton'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -108,6 +109,18 @@ export default async function SongPage({ params }: Props) {
           </div>
           <PracticeArea song={s} />
         </section>
+
+        {/* Tab extraction (developer tool) */}
+        {s.youtube_url && (
+          <section>
+            <div className="flex items-center gap-3 mb-5">
+              <h2 className="text-base font-semibold text-white">Tab Extraction</h2>
+              <div className="flex-1 h-px bg-zinc-800" />
+              <span className="text-xs text-zinc-600">Developer tool</span>
+            </div>
+            <TabExtractButton songId={s.id} />
+          </section>
+        )}
 
         {/* Leaderboard + Community */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

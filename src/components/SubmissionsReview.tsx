@@ -74,7 +74,7 @@ export default function SubmissionsReview() {
       if (data.tabData) {
         setLocalData(prev => ({
           ...prev,
-          [id]: { tab_data: data.tabData, note_count: data.noteCount, vocal_url: data.vocalUrl, extraction_mode: 'vocal' },
+          [id]: { tab_data: data.tabData as TabNote[], note_count: data.noteCount as number, vocal_url: data.vocalUrl as string | null, extraction_mode: 'vocal' },
         }))
       }
     } catch (e) {

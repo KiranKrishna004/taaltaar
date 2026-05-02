@@ -25,6 +25,7 @@ function runExtractor(audioPath: string, mode: string, vocalOutputPath?: string)
 
 // POST /api/submissions/[id]/extract  body: { mode: 'vocal' | 'guitar' }
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
   const { id }   = await params
   const { mode } = await req.json()
 
@@ -126,4 +127,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 })
 
   return NextResponse.json({ ok: true, noteCount: tabData.length, tabData, vocalUrl })
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
 }

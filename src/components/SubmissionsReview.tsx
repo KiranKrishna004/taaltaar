@@ -67,8 +67,10 @@ export default function SubmissionsReview() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'vocal' }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? `extraction failed (${res.status})`)
+      const text = await res.text()
+      let data: Record<string, unknown> = {}
+      try { data = JSON.parse(text) } catch { /* non-JSON body */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `extraction failed (${res.status}): ${text.slice(0, 200)}`)
       if (data.tabData) {
         setLocalData(prev => ({
           ...prev,

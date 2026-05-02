@@ -49,8 +49,9 @@ export default function AudioSubmitButton() {
 
     try {
       const res  = await fetch('/api/submissions', { method: 'POST', body: form })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'failed')
+      const contentType = res.headers.get('content-type') ?? ''
+      const data = contentType.includes('application/json') ? await res.json() : {}
+      if (!res.ok) throw new Error(data.error ?? `Upload failed (${res.status})`)
       setPhase('done')
     } catch (e) { setError(String(e)); setPhase('error') }
   }

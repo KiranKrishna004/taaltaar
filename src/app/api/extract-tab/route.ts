@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { existsSync } from 'fs'
+import { ensureAudioCached } from '@/lib/buildGuitarAudio'
 import { spawn } from 'child_process'
 import path from 'path'
-import os from 'os'
 
 export const maxDuration = 180
 
 function runExtractor(audioPath: string, bpm: number): Promise<object[]> {
   return new Promise((resolve, reject) => {
     const script = path.join(process.cwd(), 'scripts', 'extract_tab.py')
-    const args = [script, audioPath, '--bpm', String(bpm)]
-    const proc = spawn('python3', args)
+    const proc = spawn('python3', [script, audioPath, '--bpm', String(bpm)])
 
     let stdout = ''
     let stderr = ''
@@ -20,7 +18,7 @@ function runExtractor(audioPath: string, bpm: number): Promise<object[]> {
 
     proc.on('close', (code) => {
       if (code !== 0) {
-        reject(new Error(`extractor exited ${code}: ${stderr.slice(-400)}`))
+        reject(new Error(`extractor exited ${code}: ${stderr.slice(-600)}`))
         return
       }
       try {
@@ -35,10 +33,9 @@ function runExtractor(audioPath: string, bpm: number): Promise<object[]> {
 // POST /api/extract-tab
 // Body: { songId: string, save?: boolean }
 //
-// Requires the guitar audio to already be cached at /tmp/guitar-{songId}.mp3.
-// Call /api/guitar-audio?songId=... first if it isn't.
-//
-// Returns: { noteCount, tabData } — and writes to DB if save=true.
+// Fetches + caches the guitar audio if needed, then runs the Python
+// onset/pitch extractor. Returns a preview of tab_data; writes to DB
+// only when save=true.
 export async function POST(req: NextRequest) {
   const body = await req.json()
   const { songId, save = false } = body as { songId?: string; save?: boolean }
@@ -53,46 +50,20 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (!song) return NextResponse.json({ error: 'song not found' }, { status: 404 })
+  if (!song.youtube_url) return NextResponse.json({ error: 'song has no youtube_url' }, { status: 400 })
 
-  const cachePath = path.join(os.tmpdir(), `guitar-${songId}.mp3`)
-
-  // Auto-fetch audio if not cached yet
-  if (!existsSync(cachePath)) {
-    if (!song.youtube_url) {
-      return NextResponse.json({ error: 'no youtube_url and audio not cached' }, { status: 400 })
-    }
-
-    // Reuse the guitar-audio route logic inline so we don't need an HTTP round-trip
-    try {
-      const audioRes = await fetch(
-        `${req.nextUrl.origin}/api/guitar-audio?songId=${songId}`,
-        { method: 'GET' },
-      )
-      if (!audioRes.ok) {
-        return NextResponse.json(
-          { error: `failed to fetch guitar audio: ${audioRes.statusText}` },
-          { status: 500 },
-        )
-      }
-      // Just drain the response so the file gets written to disk by the other route
-      await audioRes.arrayBuffer()
-    } catch (e) {
-      return NextResponse.json({ error: `audio fetch error: ${e}` }, { status: 500 })
-    }
-  }
-
-  if (!existsSync(cachePath)) {
-    return NextResponse.json(
-      { error: 'audio still not cached after fetch attempt — check /api/guitar-audio' },
-      { status: 500 },
-    )
+  let cachePath: string
+  try {
+    cachePath = await ensureAudioCached(songId, song.youtube_url)
+  } catch (e) {
+    return NextResponse.json({ error: `audio download failed: ${e}` }, { status: 500 })
   }
 
   let tabData: object[]
   try {
     tabData = await runExtractor(cachePath, song.bpm ?? 80)
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    return NextResponse.json({ error: `extraction failed: ${e}` }, { status: 500 })
   }
 
   if (save) {

@@ -1,55 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { existsSync, createReadStream, statSync } from 'fs'
-import { writeFile } from 'fs/promises'
-import path from 'path'
-import os from 'os'
+import { createReadStream, statSync } from 'fs'
+import { extractVideoId, ensureAudioCached } from '@/lib/buildGuitarAudio'
 
 export const maxDuration = 120
-
-function extractVideoId(url: string): string | null {
-  return url.match(/(?:v=|youtu\.be\/)([^&\s]+)/)?.[1] ?? null
-}
-
-async function buildGuitarAudio(youtubeUrl: string, outPath: string): Promise<void> {
-  const [ytdlModule, ffmpegModule, ffmpegStaticModule] = await Promise.all([
-    import('@distube/ytdl-core'),
-    import('fluent-ffmpeg'),
-    import('ffmpeg-static'),
-  ])
-
-  const ytdl = ytdlModule.default
-  const ffmpeg = ffmpegModule.default
-  const ffmpegPath = ffmpegStaticModule.default as string
-
-  const audioStream = ytdl(youtubeUrl, {
-    filter: 'audioonly',
-    quality: 'lowestaudio',
-  })
-
-  return new Promise((resolve, reject) => {
-    ffmpeg(audioStream)
-      .setFfmpegPath(ffmpegPath)
-      .audioChannels(1)
-      .audioFrequency(44100)
-      // Guitar-focused filter chain:
-      //  1. highpass at 80 Hz  — removes bass/kick
-      //  2. lowpass at 5000 Hz — removes cymbals/harsh air
-      //  3. +4 dB boost at 1.5 kHz (guitar presence/attack)
-      //  4. -3 dB cut at 250 Hz (reduces muddiness / boxiness)
-      .audioFilter([
-        'highpass=f=80',
-        'lowpass=f=5000',
-        'equalizer=f=1500:width_type=o:width=2:g=4',
-        'equalizer=f=250:width_type=o:width=2:g=-3',
-      ])
-      .format('mp3')
-      .audioBitrate(96)
-      .on('error', reject)
-      .on('end', () => resolve())
-      .save(outPath)
-  })
-}
 
 export async function GET(req: NextRequest) {
   const songId = req.nextUrl.searchParams.get('songId')
@@ -65,14 +19,11 @@ export async function GET(req: NextRequest) {
   if (!song?.youtube_url) return NextResponse.json({ error: 'no youtube_url' }, { status: 404 })
   if (!extractVideoId(song.youtube_url)) return NextResponse.json({ error: 'invalid url' }, { status: 400 })
 
-  const cachePath = path.join(os.tmpdir(), `guitar-${songId}.mp3`)
-
-  if (!existsSync(cachePath)) {
-    try {
-      await buildGuitarAudio(song.youtube_url, cachePath)
-    } catch (e) {
-      return NextResponse.json({ error: String(e) }, { status: 500 })
-    }
+  let cachePath: string
+  try {
+    cachePath = await ensureAudioCached(songId, song.youtube_url)
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 
   const stat = statSync(cachePath)

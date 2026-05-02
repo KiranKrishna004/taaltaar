@@ -5,22 +5,9 @@ import { supabase } from '@/lib/supabase'
 import { getDeviceFingerprint } from '@/lib/fingerprint'
 import { Recording } from '@/types'
 import { cn } from '@/lib/utils'
+import { stars, scoreColor } from '@/lib/scoreUtils'
 
 interface Props { songId: string }
-
-function stars(score: number) {
-  if (score >= 90) return '⭐⭐⭐⭐'
-  if (score >= 75) return '⭐⭐⭐'
-  if (score >= 50) return '⭐⭐'
-  return '⭐'
-}
-
-function scoreColor(score: number) {
-  if (score >= 90) return 'text-emerald-400'
-  if (score >= 75) return 'text-amber-400'
-  if (score >= 50) return 'text-yellow-400'
-  return 'text-zinc-400'
-}
 
 export default function RecordingFeed({ songId }: Props) {
   const [recordings, setRecordings] = useState<Recording[]>([])

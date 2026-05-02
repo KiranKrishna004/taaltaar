@@ -3,6 +3,7 @@ import StreakBanner from '@/components/StreakBanner'
 import BadgeDisplay from '@/components/BadgeDisplay'
 import HomeClient from '@/components/HomeClient'
 import { Song } from '@/types'
+import { LANGUAGE_CONFIG } from '@/lib/languageConfig'
 
 export const revalidate = 60
 
@@ -15,8 +16,10 @@ export default async function HomePage() {
     .order('play_count', { ascending: false })
 
   const allSongs = (songs as Song[]) || []
-  const tamilCount = allSongs.filter(s => s.language === 'tamil').length
-  const malayalamCount = allSongs.filter(s => s.language === 'malayalam').length
+  const langCounts = allSongs.reduce<Record<string, number>>((acc, s) => {
+    if (s.language) acc[s.language] = (acc[s.language] ?? 0) + 1
+    return acc
+  }, {})
 
   return (
     <div className="w-full max-w-6xl mx-auto px-6 py-10">
@@ -43,21 +46,24 @@ export default async function HomePage() {
           </p>
 
           {/* Stats */}
-          <div className="flex items-center justify-center gap-6 mt-7 text-sm">
+          <div className="flex items-center justify-center gap-6 mt-7 text-sm flex-wrap">
             <div className="text-center">
               <div className="text-2xl font-bold text-white">{allSongs.length}</div>
               <div className="text-zinc-500 text-xs mt-0.5">Songs</div>
             </div>
-            <div className="w-px h-8 bg-zinc-800" />
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-400">{tamilCount}</div>
-              <div className="text-zinc-500 text-xs mt-0.5">Tamil</div>
-            </div>
-            <div className="w-px h-8 bg-zinc-800" />
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-400">{malayalamCount}</div>
-              <div className="text-zinc-500 text-xs mt-0.5">Malayalam</div>
-            </div>
+            {Object.entries(langCounts).map(([lang, count]) => {
+              const cfg = LANGUAGE_CONFIG[lang]
+              if (!cfg) return null
+              return (
+                <div key={lang} className="contents">
+                  <div className="w-px h-8 bg-zinc-800" />
+                  <div className="text-center">
+                    <div className={`text-2xl font-bold ${cfg.statText}`}>{count}</div>
+                    <div className="text-zinc-500 text-xs mt-0.5">{cfg.label}</div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>

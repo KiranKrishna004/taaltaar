@@ -6,15 +6,9 @@ import { getBestScore } from '@/lib/gamification'
 import { Recording } from '@/types'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { stars } from '@/lib/scoreUtils'
 
 interface Props { songId: string }
-
-function stars(score: number) {
-  if (score >= 90) return '⭐⭐⭐⭐'
-  if (score >= 75) return '⭐⭐⭐'
-  if (score >= 50) return '⭐⭐'
-  return '⭐'
-}
 
 const rankMedal = ['🥇', '🥈', '🥉']
 const rankStyle = ['text-yellow-400', 'text-zinc-300', 'text-amber-700']

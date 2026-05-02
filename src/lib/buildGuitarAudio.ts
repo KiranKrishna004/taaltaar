@@ -19,10 +19,10 @@ export async function buildGuitarAudio(youtubeUrl: string, outPath: string): Pro
   const ytdl = ytdlModule.default
   const ffmpeg = ffmpegModule.default
 
-  // dynamic import('ffmpeg-static') returns '/ROOT/...' in Next.js ESM context.
-  // require() resolves the path correctly from the package's own __dirname.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const ffmpegPath: string = require('ffmpeg-static')
+  // Both import() and require() of ffmpeg-static return '/ROOT/...' because
+  // Next.js webpack substitutes a placeholder at bundle time. Bypass the
+  // module system and build the path from process.cwd() at runtime instead.
+  const ffmpegPath = path.join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg')
 
   const audioStream = ytdl(youtubeUrl, {
     filter: 'audioonly',

@@ -8,10 +8,23 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const supabase = createAdminSupabaseClient()
   const { data, error } = await supabase
     .from('audio_submissions')
-    .select('id, tab_data, note_count, vocal_url, extraction_mode, extraction_status, extraction_error')
+    .select('id, tab_data, note_count, vocal_url, extraction_mode, extraction_status, extraction_error, extraction_started_at')
     .eq('id', id)
     .single()
   if (error || !data) return NextResponse.json({ error: 'not found' }, { status: 404 })
+
+  // If stuck in processing for more than 10 minutes, Modal job silently failed — reset to error
+  if (data.extraction_status === 'processing' && data.extraction_started_at) {
+    const ageMs = Date.now() - new Date(data.extraction_started_at).getTime()
+    if (ageMs > 10 * 60 * 1000) {
+      await supabase
+        .from('audio_submissions')
+        .update({ extraction_status: 'error', extraction_error: 'Timed out — Modal job did not complete' })
+        .eq('id', id)
+      return NextResponse.json({ submission: { ...data, extraction_status: 'error', extraction_error: 'Timed out — Modal job did not complete' } })
+    }
+  }
+
   return NextResponse.json({ submission: data })
 }
 

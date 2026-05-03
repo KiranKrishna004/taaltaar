@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // Mark processing immediately so the UI can start polling
     await supabase
       .from('audio_submissions')
-      .update({ extraction_status: 'processing', extraction_error: null })
+      .update({ extraction_status: 'processing', extraction_error: null, extraction_started_at: new Date().toISOString() })
       .eq('id', id)
 
     // Trigger the Modal background job

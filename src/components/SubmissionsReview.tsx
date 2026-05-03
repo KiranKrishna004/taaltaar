@@ -38,9 +38,12 @@ export default function SubmissionsReview() {
     setLoading(true)
     const res  = await fetch(`/api/submissions?status=${status}`)
     const data = await res.json()
-    setSubmissions(data.submissions ?? [])
+    const subs: Submission[] = data.submissions ?? []
+    setSubmissions(subs)
     setLocalData({})
-    setPollingIds(new Set())
+    // Resume polling for any jobs that were already running before the page loaded
+    const processing = new Set(subs.filter(s => s.extraction_status === 'processing').map(s => s.id))
+    setPollingIds(processing)
     setLoading(false)
   }
 

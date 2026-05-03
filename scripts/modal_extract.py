@@ -44,9 +44,11 @@ image = (
 @app.function(
     image=image,
     gpu="T4",
-    volumes={"/root/.cache": model_cache},
+    volumes={"/model-cache": model_cache},
     timeout=300,
     secrets=[modal.Secret.from_name("taaltaar")],
+    # Point torch + demucs at the persistent volume
+    env={"TORCH_HOME": "/model-cache/torch", "XDG_CACHE_HOME": "/model-cache"},
 )
 def run_extraction(submission_id: str, audio_url: str, vocal_url: Optional[str], mode: str) -> None:
     import sys

@@ -35,7 +35,7 @@ image = (
         ["torch", "torchaudio"],
         extra_index_url="https://download.pytorch.org/whl/cu118",
     )
-    .pip_install(["demucs", "librosa", "noisereduce", "soundfile", "supabase", "httpx"])
+    .pip_install(["demucs", "librosa", "noisereduce", "soundfile", "supabase", "httpx", "torchcodec"])
     # Bake extract_tab.py into the image at build time
     .add_local_file(str(_scripts_dir / "extract_tab.py"), "/app/extract_tab.py")
 )

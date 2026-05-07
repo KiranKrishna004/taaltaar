@@ -49,7 +49,7 @@ export default function SubmissionsReview() {
 
   useEffect(() => { load(filter) }, [filter])
 
-  // Poll every 3 s for any submission still being processed by Modal
+  // Poll every 10s for any submission still being processed by Modal
   useEffect(() => {
     if (pollingIds.size === 0) return
 
@@ -78,7 +78,7 @@ export default function SubmissionsReview() {
           return next
         })
       }
-    }, 3000)
+    }, 10000)
 
     return () => clearInterval(interval)
   }, [pollingIds])
